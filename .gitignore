@@ -1,0 +1,9 @@
+venv
+.env
+wandb
+annotations
+train2014.zip
+train2014
+artifacts
+.vscode
+inception_v3_extracted_features
