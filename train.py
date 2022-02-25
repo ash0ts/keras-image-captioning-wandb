@@ -2,7 +2,8 @@ from model.CNNEncoder import CNN_Encoder
 from model.RNNDecoder import RNN_Decoder
 import tensorflow as tf
 import time
-
+from image_utils import load_image
+import numpy as np
 # Feel free to change these parameters according to your system's configuration
 
 BATCH_SIZE = 64
@@ -18,6 +19,35 @@ attention_features_shape = 64
 
 
 def train():
+
+    BATCH_SIZE = 64
+    BUFFER_SIZE = 1000
+    embedding_dim = 256
+    units = 512
+    num_steps = len(img_name_train) // BATCH_SIZE
+    # Shape of the vector extracted from InceptionV3 is (64, 2048)
+    # These two variables represent that vector shape
+    features_shape = 2048
+    attention_features_shape = 64
+
+    # Load the numpy files
+    def map_func(img_name, cap):
+        img_tensor = np.load(img_name.decode('utf-8')+'.npy')
+        return img_tensor, cap
+
+    dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
+
+    # Use map to load the numpy files in parallel
+    dataset = dataset.map(lambda item1, item2: tf.numpy_function(
+        map_func, [item1, item2], [tf.float32, tf.int64]),
+        num_parallel_calls=tf.data.AUTOTUNE)
+
+    # Shuffle and batch
+    dataset = dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+    dataset = dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
+
+    print(dataset)
+
     encoder = CNN_Encoder(embedding_dim)
     decoder = RNN_Decoder(embedding_dim, units, tokenizer.vocabulary_size())
     optimizer = tf.keras.optimizers.Adam()

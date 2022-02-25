@@ -7,3 +7,7 @@ train2014
 artifacts
 .vscode
 inception_v3_extracted_features
+split_data
+text_artifacts
+caption_dataset.pkl
+__pycache__

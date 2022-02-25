@@ -2,6 +2,7 @@ from dotenv import load_dotenv, find_dotenv
 import os
 import wandb
 import tensorflow as tf
+from config import annotation_folder, image_folder
 load_dotenv(find_dotenv())
 
 WANDB_PROJECT = os.environ["WANDB_PROJECT"]
@@ -10,8 +11,7 @@ WANDB_ENTITY = os.environ["WANDB_ENTITY"]
 
 def log_raw_dataset():
     run = wandb.init(project=WANDB_PROJECT,
-                     entity=WANDB_ENTITY, name="log-raw-data")
-    annotation_folder = '/annotations/'
+                     entity=WANDB_ENTITY, name="log-coco2014", job_type="log_raw")
     if not os.path.exists(os.path.abspath('.') + annotation_folder):
         annotation_zip = tf.keras.utils.get_file('captions.zip',
                                                  cache_subdir=os.path.abspath(
@@ -23,7 +23,6 @@ def log_raw_dataset():
         os.remove(annotation_zip)
 
     # Download image files
-    image_folder = '/train2014/'
     if not os.path.exists(os.path.abspath('.') + image_folder):
         image_zip = tf.keras.utils.get_file('train2014.zip',
                                             cache_subdir=os.path.abspath('.'),
