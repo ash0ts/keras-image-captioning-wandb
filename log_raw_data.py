@@ -2,11 +2,8 @@ from dotenv import load_dotenv, find_dotenv
 import os
 import wandb
 import tensorflow as tf
-from config import annotation_folder, image_folder
+from config import WANDB_PROJECT, WANDB_ENTITY, annotation_folder, image_folder
 load_dotenv(find_dotenv())
-
-WANDB_PROJECT = os.environ["WANDB_PROJECT"]
-WANDB_ENTITY = os.environ["WANDB_ENTITY"]
 
 
 def log_raw_dataset():
@@ -18,9 +15,12 @@ def log_raw_dataset():
                                                      '.'),
                                                  origin='http://images.cocodataset.org/annotations/annotations_trainval2014.zip',
                                                  extract=True)
+
+        os.remove(annotation_zip)
         annotation_file = os.path.dirname(
             annotation_zip)+'/annotations/captions_train2014.json'
-        os.remove(annotation_zip)
+    else:
+        annotation_file = './annotations/captions_train2014.json'
 
     # Download image files
     if not os.path.exists(os.path.abspath('.') + image_folder):

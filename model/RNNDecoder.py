@@ -1,4 +1,4 @@
-from BahdanauAttention import BahdanauAttention
+from .BahdanauAttention import BahdanauAttention
 import tensorflow as tf
 
 

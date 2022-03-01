@@ -10,32 +10,22 @@ import numpy as np
 from text_utils import generate_text_artifacts
 from image_utils import load_image
 from config import subset, batch_size, max_length, vocabulary_size, train_split
-from utils import save_to_pickle
+from config import WANDB_PROJECT, WANDB_ENTITY
+from utils import save_to_pickle, load_from_pickle
+import pandas as pd
 load_dotenv(find_dotenv())
 
-WANDB_PROJECT = os.environ["WANDB_PROJECT"]
-WANDB_ENTITY = os.environ["WANDB_ENTITY"]
 
-# TODO: Move to load
-
-
-def download_wandb_coco2014():
+def generate_coco2014_data_table(subset=None):
     run = wandb.init(project=WANDB_PROJECT,
-                     entity=WANDB_ENTITY, name="download-coco2014", job_type="download")
+                     entity=WANDB_ENTITY, name="download-load-coco2014", job_type="data_generation")
+
     annotation_art = run.use_artifact("annotations:latest")
     annotation_file = os.path.join(
         annotation_art.download(), "captions_train2014.json")
 
     images_art = run.use_artifact("images:latest")
     images_path = images_art.download()
-
-    run.finish()
-    return annotation_file, images_path
-
-
-def load_coco2014(annotation_file, images_path, subset=None):
-    run = wandb.init(project=WANDB_PROJECT,
-                     entity=WANDB_ENTITY, name="load-coco2014", job_type="load_raw")
     with open(annotation_file, 'r') as f:
         annotations = json.load(f)
 
@@ -71,22 +61,37 @@ def load_coco2014(annotation_file, images_path, subset=None):
     wandb_imgs = [wandb.Image(path, caption=cap)
                   for cap, path in zip(train_captions, img_name_vector)]
 
-    img_table = wandb.Table(columns=["name", "image", "caption"])
+    img_cap_table = wandb.Table(columns=["name", "image", "caption"])
     for name, image, caption in tqdm(zip(img_names, wandb_imgs, train_captions)):
-        img_table.add_data(name, image, caption)
-    run.log({"image_table": img_table})
+        img_cap_table.add_data(name, image, caption)
+
+    img_tab_art = wandb.Artifact(
+        name="image_caption_table", type="dataset")
+    img_tab_art.add(img_cap_table, name="img_cap_table")
+    run.log_artifact(img_tab_art)
+    run.log({"image_table": img_cap_table})
     run.finish()
 
-    return train_captions, img_name_vector
+    return None
 
 # TODO: Injest the logged wandb.Table
 # TODO: Remove batching so cna log embeddings into table for projection viewer
 # TODO: Read data from logged load data step
 
 
-def generate_and_log_inception_features(img_name_vector, batch_size=32):
+def generate_and_log_inception_features(batch_size=32):
     run = wandb.init(project=WANDB_PROJECT,
                      entity=WANDB_ENTITY, name="log-inception-features", job_type="data_process")
+    # TODO: Figure out if you can download the images directly via the table. For now forcing a link with the images dataset
+    # BUG: Using the images artifact forces all the data to download instead of just the values we want
+    images_art = run.use_artifact("images:latest")
+    images_path = images_art.download()
+    img_cap_table = run.use_artifact(
+        "image_caption_table:latest").get("img_cap_table")
+    img_names = img_cap_table.get_column("name")
+
+    img_name_vector = [os.path.join(images_path, img_name)
+                       for img_name in img_names]
 
     image_model = tf.keras.applications.InceptionV3(include_top=False,
                                                     weights='imagenet')
@@ -125,118 +130,116 @@ def generate_and_log_inception_features(img_name_vector, batch_size=32):
         name="inception_v3", type="image_features")
     inception_features_art.add_dir(inception_v3_extracted_features_dir)
     run.log_artifact(inception_features_art)
+
+    image_features_extract_model.save("feature_extractor")
+    feature_extractor_model_art = wandb.Artifact(
+        name="feature_extractor", type="model")
+    feature_extractor_model_art.add_dir("feature_extractor")
+    run.log_artifact(feature_extractor_model_art)
     run.finish()
 
     return None
 
-# TODO: Read from logged load data step
-# TODO: Read directly from wandb.Table
-# TODO: Move generate_text_artifacts call here?
-
-
-def generate_and_log_caption_dataset(train_captions):
-    run = wandb.init(project=WANDB_PROJECT,
-                     entity=WANDB_ENTITY, name="log-caption-dataset", job_type="data_process")
-    caption_dataset = tf.data.Dataset.from_tensor_slices(train_captions)
-    caption_dataset_file = os.path.join(".", "caption_dataset.pkl")
-    save_to_pickle(train_captions, caption_dataset_file)
-    caption_dataset_art = wandb.Artifact(
-        name="caption_dataset", type="dataset")
-    caption_dataset_art.add_file(caption_dataset_file)
-    run.log_artifact(caption_dataset_art)
-    run.finish()
-
-    return caption_dataset
-
 # TODO: Read data from wandb.Table?
 # TODO: Generate tables for train and test here for visualization purposes
 
+#TODO: Replace with working version currently living in ipynb
+# def generate_and_log_test_train_split():
+#     run = wandb.init(project=WANDB_PROJECT,
+#                      entity=WANDB_ENTITY, name="log-test-train-split", job_type="data_process")
 
-def generate_and_log_test_train_split(img_name_vector, cap_vector):
-    run = wandb.init(project=WANDB_PROJECT,
-                     entity=WANDB_ENTITY, name="log-test-train-split", job_type="data_process")
+#     images_art = run.use_artifact("images:latest")
+#     images_path = images_art.download()
+#     img_cap_table = run.use_artifact(
+#         "image_caption_table:latest").get("img_cap_table")
+#     captions = img_cap_table.get_column("caption")
+#     img_names = img_cap_table.get_column("name")
 
-    img_to_cap_vector = collections.defaultdict(list)
-    for img, cap in zip(img_name_vector, cap_vector):
-        img_to_cap_vector[img].append(cap)
+#     img_name_vector = [os.path.join(images_path, img_name)
+#                        for img_name in img_names]
 
-    # Create training and validation sets using an 80-20 split randomly.
-    img_keys = list(img_to_cap_vector.keys())
-    random.shuffle(img_keys)
+#     caption_dataset = tf.data.Dataset.from_tensor_slices(captions)
+#     # cap vecotr contains each sentence as max_length where the word position index is the vocab index
+#     _, cap_vector, _, _ = generate_text_artifacts(
+#         caption_dataset, max_length=max_length, vocabulary_size=vocabulary_size, return_mapping=False)
 
-    slice_index = int(len(img_keys)*train_split)
-    img_name_train_keys, img_name_val_keys = img_keys[:
-                                                      slice_index], img_keys[slice_index:]
+#     img_to_cap_vector = collections.defaultdict(list)
+#     for img, cap in zip(img_name_vector, cap_vector):
+#         img_to_cap_vector[img].append(cap)
 
-    img_name_train = []
-    cap_train = []
-    for img_path in img_name_train_keys:
-        imgt = os.path.basename(img_path)
-        capt_len = len(img_to_cap_vector[imgt])
-        img_name_train.extend([imgt] * capt_len)
-        cap_train.extend(img_to_cap_vector[imgt])
+#     # Create training and validation sets using an 80-20 split randomly.
+#     img_keys = list(img_to_cap_vector.keys())
+#     random.shuffle(img_keys)
 
-    img_name_val = []
-    cap_val = []
-    for img_path in img_name_val_keys:
-        imgv = os.path.basename(img_path)
-        capv_len = len(img_to_cap_vector[imgv])
-        img_name_val.extend([imgv] * capv_len)
-        cap_val.extend(img_to_cap_vector[imgv])
+#     slice_index = int(len(img_keys)*train_split)
+#     img_name_train_keys, img_name_val_keys = img_keys[:
+#                                                       slice_index], img_keys[slice_index:]
 
-    split_art_dir = os.path.join(".", "split_data")
-    if not os.path.exists(split_art_dir):
-        os.makedirs(split_art_dir)
+#     img_name_train = []
+#     cap_train = []
+#     for img_path in img_name_train_keys:
+#         imgt = os.path.basename(img_path)
+#         capt_len = len(img_to_cap_vector[imgt])
+#         img_name_train.extend([imgt] * capt_len)
+#         cap_train.extend(img_to_cap_vector[imgt])
 
-    save_to_pickle(img_name_train, os.path.join(
-        split_art_dir, "img_name_train.pkl"))
-    save_to_pickle(cap_train, os.path.join(split_art_dir, "cap_train.pkl"))
-    save_to_pickle(img_name_val, os.path.join(
-        split_art_dir, "img_name_val.pkl"))
-    save_to_pickle(cap_val, os.path.join(
-        split_art_dir, "cap_val.pkl"))
+#     img_name_val = []
+#     cap_val = []
+#     for img_path in img_name_val_keys:
+#         imgv = os.path.basename(img_path)
+#         capv_len = len(img_to_cap_vector[imgv])
+#         img_name_val.extend([imgv] * capv_len)
+#         cap_val.extend(img_to_cap_vector[imgv])
 
-    split_art = wandb.Artifact(name="split", type="dataset")
-    split_art.add_dir(split_art_dir)
-    run.log_artifact(split_art)
+#     split_art_dir = os.path.join(".", "split_data")
+#     if not os.path.exists(split_art_dir):
+#         os.makedirs(split_art_dir)
 
-    run.finish()
+#     save_to_pickle(img_name_train, os.path.join(
+#         split_art_dir, "img_name_train.pkl"))
+#     save_to_pickle(cap_train, os.path.join(split_art_dir, "cap_train.pkl"))
+#     save_to_pickle(img_name_val, os.path.join(
+#         split_art_dir, "img_name_val.pkl"))
+#     save_to_pickle(cap_val, os.path.join(
+#         split_art_dir, "cap_val.pkl"))
 
-    return img_name_train, cap_train, img_name_val, cap_val
+#     split_art = wandb.Artifact(name="split", type="dataset")
+#     split_art.add_dir(split_art_dir)
+
+#     train_wandb_imgs = [wandb.Image(os.path.join(images_path, path), caption=cap)
+#                         for cap, path in zip(cap_train, img_name_train)]
+#     val_wandb_imgs = [wandb.Image(os.path.join(images_path, path), caption=cap)
+#                       for cap, path in zip(cap_val, img_name_val)]
+
+#     train_img_cap_table = wandb.Table(columns=["name", "image", "caption"])
+#     for name, image, caption in tqdm(zip(img_name_train, train_wandb_imgs, cap_train)):
+#         train_img_cap_table.add_data(name, image, caption)
+
+#     val_img_cap_table = wandb.Table(columns=["name", "image", "caption"])
+#     for name, image, caption in tqdm(zip(img_name_val, val_wandb_imgs, cap_val)):
+#         val_img_cap_table.add_data(name, image, caption)
+
+#     split_art.add(train_img_cap_table, "train_img_cap_table")
+#     split_art.add(val_img_cap_table, "val_img_cap_table")
+
+#     run.log({
+#         "train_img_cap_table": train_img_cap_table,
+#         "val_img_cap_table": val_img_cap_table
+#     })
+#     run.log_artifact(split_art)
+#     run.finish()
+
+#     return None
 
 # TODO: Remove all passed variables to make wandb connections in graph view more apparent
 
 
 def process_data():
-    # TODO: Move this into load_coco2014 for better graph view
-    annotation_file, images_path = download_wandb_coco2014()
-    train_captions, img_name_vector = load_coco2014(
-        annotation_file, images_path, subset=subset)
-    generate_and_log_inception_features(
-        img_name_vector, batch_size=batch_size)
-    # TODO: Move generate text artifacts into this function instead. return the cap vector instead of caption dataset
-    caption_dataset = generate_and_log_caption_dataset(train_captions)
-    _, cap_vector, _, _ = generate_text_artifacts(
-        caption_dataset, max_length=max_length, vocabulary_size=vocabulary_size, return_mapping=False)
-    generate_and_log_test_train_split(img_name_vector, cap_vector)
-
-    # TODO: Save this tf.Dataset into a tfrecord for model training
-
-    # train
-    # -tokenizer
-    # -word_to_index
-    # -dataset
-    # eval
-    # -max_length
-    # -attention_features_shape
-    # -load_image
-    # -decoder
-    # -encoder
-    # -word_to_index
-    # -index_to_word
-    # -img_name_val
-    # -cap_val
-
+    generate_coco2014_data_table(
+        subset=subset)
+    generate_and_log_inception_features(batch_size=batch_size)
+    # generate_and_log_test_train_split()
+    
     return None
 
 

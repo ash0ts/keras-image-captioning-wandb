@@ -7,3 +7,10 @@ def load_image(image_path):
     img = tf.keras.layers.Resizing(299, 299)(img)
     img = tf.keras.applications.inception_v3.preprocess_input(img)
     return img, image_path
+
+
+def load_wandb_image(image):
+    img = tf.io.decode_jpeg(image, channels=3)
+    img = tf.keras.layers.Resizing(299, 299)(img)
+    img = tf.keras.applications.inception_v3.preprocess_input(img)
+    return img

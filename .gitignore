@@ -11,3 +11,8 @@ split_data
 text_artifacts
 caption_dataset.pkl
 __pycache__
+attention_plots
+decoder
+encoder
+feature_extractor
+.ipynb_checkpoints
