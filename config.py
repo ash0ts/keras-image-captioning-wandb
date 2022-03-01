@@ -14,8 +14,8 @@ max_length = 50
 vocabulary_size = 5000
 train_split = 0.8
 
-#train.py
-EPOCHS = 2
+# train.py
+EPOCHS = 20
 BATCH_SIZE = 64
 BUFFER_SIZE = 1000
 embedding_dim = 256
